@@ -1,6 +1,7 @@
 import os
 
 import tensorflow as tf
+from tensorflow.contrib.tensorboard.plugins import projector
 
 from config import Config
 from util.data_util import CoNLLDataset
@@ -45,6 +46,8 @@ class BaseModel(object):
                     self.logger.info("- stop after {} epochs no improvement".format(n_epoch_no_improve))
                     break
 
+        self._add_word_embeddings_visualization()
+
     def evaluate(self, test):
         self.logger.info("Testing model over test set")
         metrics = self._run_evaluate(test)
@@ -69,6 +72,7 @@ class BaseModel(object):
 
     def __add_summary(self):
         self.merged = tf.summary.merge_all()
+        self.projector = projector.ProjectorConfig()
         self.file_writer = tf.summary.FileWriter(self.config.dir_output, self.sess.graph)
 
     def __initialize_session(self):
@@ -114,3 +118,6 @@ class BaseModel(object):
 
     def _add_train_op(self, optimizer):
         raise NotImplementedError()
+
+    def _add_word_embeddings_visualization(self):
+        pass

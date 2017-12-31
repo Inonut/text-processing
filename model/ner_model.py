@@ -2,6 +2,8 @@ from functools import reduce
 
 import tensorflow as tf
 import numpy as np
+from tensorflow.contrib.tensorboard.plugins import projector
+
 from model.base_model import BaseModel
 from util.data_util import CoNLLDataset, minibatches, pad_sequences, get_chunks, NONE
 from util.general_util import Progbar
@@ -34,15 +36,22 @@ class NerModel(BaseModel):
 
         with tf.variable_scope("words"):
             # get word embeddings matrix
-            _word_embeddings = tf.get_variable(
-                name="_word_embeddings",
-                dtype=tf.float32,
-                shape=[self.config.n_words, self.config.dim_word])
+            if self.config.embeddings is None:
+                self._word_embeddings = tf.get_variable(
+                    name="_word_embeddings",
+                    dtype=tf.float32,
+                    shape=[self.config.n_words, self.config.dim_word])
+            else:
+                self._word_embeddings = tf.Variable(
+                    self.config.embeddings,
+                    name="_word_embeddings",
+                    trainable= False,
+                    dtype=tf.float32)
 
-            self.word_embeddings = tf.nn.embedding_lookup(_word_embeddings, self.word_ids, name="word_embeddings")
+            self.word_embeddings = tf.nn.embedding_lookup(self._word_embeddings, self.word_ids, name="word_embeddings")
 
             # for tensorboard
-            tf.summary.histogram('_word_embeddings', _word_embeddings)
+            tf.summary.histogram('_word_embeddings', self._word_embeddings)
 
     def _add_char_embeddings_op(self):
         with tf.variable_scope("chars"):
@@ -57,7 +66,6 @@ class NerModel(BaseModel):
             # for tensorboard
             tf.summary.histogram('_char_embeddings', _char_embeddings)
 
-        with tf.variable_scope("bi-lstm-chars"):
             # make it to fit
             s = tf.shape(char_embeddings)
             char_embeddings = tf.reshape(char_embeddings, shape=[s[0] * s[1], s[2], self.config.dim_char])
@@ -83,7 +91,7 @@ class NerModel(BaseModel):
 
     def _add_logits_op(self):
 
-        with tf.variable_scope("bi-lstm-word"):
+        with tf.variable_scope("bi-lstm"):
             cell_fw = tf.contrib.rnn.LSTMCell(self.config.hidden_size_lstm)
             cell_bw = tf.contrib.rnn.LSTMCell(self.config.hidden_size_lstm)
             (output_fw, output_bw), _ = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw,
@@ -116,6 +124,7 @@ class NerModel(BaseModel):
 
         # for tensorboard
         tf.summary.scalar("loss", self.loss)
+        tf.summary.histogram("histogram loss", self.loss)
 
     def _add_train_op(self, optimizer):
         self.train_op = optimizer.minimize(self.loss)
@@ -176,8 +185,11 @@ class NerModel(BaseModel):
         for words, labels in minibatches(test, self.config.batch_size):
             labels_pred, sequence_lengths = self.predict_batch(words)
 
-            for lab, lab_pred in zip(labels, labels_pred):
-                accs += [a == b for (a, b) in zip(lab, lab_pred)]
+            for lab, lab_pred, length in zip(labels, labels_pred,
+                                             sequence_lengths):
+                lab      = lab[:length]
+                lab_pred = lab_pred[:length]
+                accs    += [a==b for (a, b) in zip(lab, lab_pred)]
 
                 cond = lambda x: x[0] != self.config.vocab_tags[NONE]   
 
@@ -204,7 +216,8 @@ class NerModel(BaseModel):
         logits, trans_params = self.sess.run([self.logits, self.trans_params], feed_dict=fd)
 
         # iterate over the sentences because no batching in vitervi_decode
-        for logit, _ in zip(logits, sequence_lengths):
+        for logit, sequence_length in zip(logits, sequence_lengths):
+            logit = logit[:sequence_length] # keep only the valid steps
             viterbi_seq, viterbi_score = tf.contrib.crf.viterbi_decode(logit, trans_params)
             viterbi_sequences += [viterbi_seq]
 
@@ -218,3 +231,20 @@ class NerModel(BaseModel):
         preds = [idx_to_tag[idx] for idx in list(pred_ids[0])]
 
         return preds
+
+    def _add_word_embeddings_visualization(self):
+        with tf.variable_scope("words"):
+            final_embed_matrix = self.sess.run(self._word_embeddings)
+
+        embedding_var = tf.Variable(final_embed_matrix, name='embedding')
+        self.sess.run(embedding_var.initializer)
+
+        # add embedding to the config file
+        embedding = self.projector.embeddings.add()
+        embedding.tensor_name = embedding_var.name
+        embedding.metadata_path = self.config.filename_words
+
+        # saves a configuration file that TensorBoard will read during startup.
+        projector.visualize_embeddings(self.file_writer, self.projector)
+        saver_embed = tf.train.Saver([embedding_var])
+        saver_embed.save(self.sess, self.config.path_ckpt, 1)

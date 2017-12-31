@@ -36,6 +36,7 @@ class Config(object):
     # general config
     dir_output = "results/"
     dir_model = dir_output + "model.weights/"
+    path_ckpt = dir_output + "model3.ckpt"
     path_log = dir_output + "log.txt"
 
     # dataset
@@ -56,7 +57,7 @@ class Config(object):
     filename_glove = "data/glove.6B/glove.6B.{}d.txt".format(dim_word)
     # trimmed embeddings (created from glove_filename with build_data.py)
     filename_trimmed = "data/glove.6B.{}d.trimmed.npz".format(dim_word)
-    use_pretrained = False
+    use_pretrained = True
 
     # training
     # train_embeddings = False

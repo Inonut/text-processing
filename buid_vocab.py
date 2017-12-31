@@ -23,7 +23,7 @@ def main():
     # process real vocab
     if glove is not None:
         vocab_glove_words, _, _ = glove.make_vocab()
-        logger.info("- done. {} clove word tokens".format(len(vocab_glove_words)))
+        logger.info("- done. {} glove word tokens".format(len(vocab_glove_words)))
         vocab_words = vocab_words & vocab_glove_words
     vocab_words.add(UNK)
     vocab_words.add(NUM)
@@ -39,7 +39,7 @@ def main():
     if glove is not None:
         vocab = glove.load_vocab(config.filename_words)
         export_glove_train(vocab, config.filename_glove, config.filename_trimmed, config.dim_word)
-        logger.info("- done. writing clove training")
+        logger.info("- done. writing glove training")
 
 
 if __name__ == "__main__":
