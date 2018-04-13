@@ -2,6 +2,7 @@ import os
 
 import tensorflow as tf
 from tensorflow.contrib.tensorboard.plugins import projector
+from tensorflow.python import debug as tf_debug
 
 from config import Config
 from util.data_util import CoNLLDataset
@@ -78,6 +79,7 @@ class BaseModel(object):
     def __initialize_session(self):
         self.logger.info("Initializing tf session")
         self.sess = tf.Session()
+        self.sess = tf_debug.TensorBoardDebugWrapperSession(self.sess, 'localhost:6064')
         self.sess.run(tf.global_variables_initializer())
         self.saver = tf.train.Saver()
 

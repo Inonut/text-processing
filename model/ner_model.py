@@ -242,7 +242,7 @@ class NerModel(BaseModel):
         # add embedding to the config file
         embedding = self.projector.embeddings.add()
         embedding.tensor_name = embedding_var.name
-        embedding.metadata_path = self.config.filename_words
+        embedding.metadata_path = '../' + self.config.filename_words
 
         # saves a configuration file that TensorBoard will read during startup.
         projector.visualize_embeddings(self.file_writer, self.projector)
