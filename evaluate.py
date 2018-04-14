@@ -4,19 +4,6 @@ from util.data_util import CoNLLDataset
 
 
 def align_data(data):
-    """Given dict with lists, creates aligned strings
-
-    Adapted from Assignment 3 of CS224N
-
-    Args:
-        data: (dict) data["x"] = ["I", "love", "you"]
-              (dict) data["y"] = ["O", "O", "O"]
-
-    Returns:
-        data_aligned: (dict) data_align["x"] = "I love you"
-                           data_align["y"] = "O O    O  "
-
-    """
     spacings = [max([len(seq[i]) for seq in data.values()])
                 for i in range(len(data[list(data.keys())[0]]))]
     data_aligned = dict()
@@ -33,18 +20,6 @@ def align_data(data):
 
 
 def interactive_shell(model):
-    """Creates interactive shell to play with model
-
-    Args:
-        model: instance of NERModel
-
-    """
-    model.logger.info("""
-This is an interactive mode.
-To exit, enter 'exit'.
-You can enter a sentence like
-input> I love Paris""")
-
     while True:
 
         sentence = input("input> ")

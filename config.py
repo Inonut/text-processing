@@ -69,5 +69,5 @@ class Config(object):
     lr_decay = 0.9  # adjust learn rete
     n_epoch_no_improve = 3
 
-    hidden_size_char = 100  # lstm on chars
-    hidden_size_lstm = 300  # lstm on word embeddings
+    hidden_size_char_lstm = 100  # lstm on chars
+    hidden_size_word_lstm = 300  # lstm on word embeddings

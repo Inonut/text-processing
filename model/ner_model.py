@@ -12,42 +12,40 @@ from util.general_util import Progbar
 class NerModel(BaseModel):
 
     def _add_placeholders(self):
-        """Define placeholders = entries to computational graph"""
         # shape = (batch size, max length of sentence in batch)
-        self.word_ids = tf.placeholder(tf.int32, shape=[None, None], name="word_ids")
+        self.word_ids = tf.placeholder(tf.int32, [None, None], "word_ids")
 
         # shape = (batch size)
-        self.sequence_lengths = tf.placeholder(tf.int32, shape=[None], name="sequence_lengths")
+        self.sequence_lengths = tf.placeholder(tf.int32, [None], "sequence_lengths")
 
-        # shape = (batch size, max length of sentence, max length of word)
-        self.char_ids = tf.placeholder(tf.int32, shape=[None, None, None], name="char_ids")
+        # shape = (batch size, max length of sentence in batch, max length of word in sentence)
+        self.char_ids = tf.placeholder(tf.int32, [None, None, None], "char_ids")
 
-        # shape = (batch_size, max_length of sentence)
-        self.word_lengths = tf.placeholder(tf.int32, shape=[None, None], name="word_lengths")
+        # shape = (batch_size, max_length of sentence in batch)
+        self.word_lengths = tf.placeholder(tf.int32, [None, None], "word_lengths")
 
         # shape = (batch size, max length of sentence in batch)
-        self.labels = tf.placeholder(tf.int32, shape=[None, None], name="labels")
+        self.labels = tf.placeholder(tf.int32, [None, None], "labels")
 
-        # hyper parameters
-        self.dropout = tf.placeholder(dtype=tf.float32, shape=[], name="dropout")
-        self.lr = tf.placeholder(dtype=tf.float32, shape=[], name="lr")
+        self.dropout = tf.placeholder(tf.float32, [], "dropout")
+        self.lr = tf.placeholder(tf.float32, [], "lr")
 
     def _add_word_embeddings_op(self):
 
         with tf.variable_scope("words"):
-            # get word embeddings matrix
             if self.config.embeddings is None:
                 self._word_embeddings = tf.get_variable(
-                    name="_word_embeddings",
                     dtype=tf.float32,
-                    shape=[self.config.n_words, self.config.dim_word])
+                    shape=[self.config.n_words, self.config.dim_word],
+                    name="_word_embeddings")
             else:
                 self._word_embeddings = tf.Variable(
                     self.config.embeddings,
-                    name="_word_embeddings",
+                    dtype=tf.float32,
                     trainable= False,
-                    dtype=tf.float32)
+                    name="_word_embeddings")
 
+            # shape (?, ?, self.config.dim_word)
             self.word_embeddings = tf.nn.embedding_lookup(self._word_embeddings, self.word_ids, name="word_embeddings")
 
             # for tensorboard
@@ -57,43 +55,44 @@ class NerModel(BaseModel):
         with tf.variable_scope("chars"):
             # get char embeddings matrix
             _char_embeddings = tf.get_variable(
-                name="_char_embeddings",
                 dtype=tf.float32,
-                shape=[self.config.n_chars, self.config.dim_char])
+                shape=[self.config.n_chars, self.config.dim_char],
+                name="_char_embeddings")
 
+            # shape (?, ?, ?, self.config.dim_char)
             char_embeddings = tf.nn.embedding_lookup(_char_embeddings, self.char_ids, name="char_embeddings")
 
             # for tensorboard
             tf.summary.histogram('_char_embeddings', _char_embeddings)
 
-            # make it to fit
-            s = tf.shape(char_embeddings)
-            char_embeddings = tf.reshape(char_embeddings, shape=[s[0] * s[1], s[2], self.config.dim_char])
-            word_lengths = tf.reshape(self.word_lengths, shape=[s[0] * s[1]])
+            with tf.variable_scope("bi-lstm"):
+                # make it to fit
+                # because word lengths depends by bach_size; sentence can have different lengths
+                s = tf.shape(char_embeddings)
+                bach_size = s[0]
+                max_length_sentence= s[1]
+                mas_length_word = s[2]
+                char_embeddings = tf.reshape(char_embeddings, [bach_size * max_length_sentence, mas_length_word, self.config.dim_char], "char_embeddings")
+                word_lengths = tf.reshape(self.word_lengths, [bach_size * max_length_sentence], "word_lengths")
 
-            # bi lstm on chars
-            cell_fw = tf.contrib.rnn.LSTMCell(self.config.hidden_size_char, state_is_tuple=True)
-            cell_bw = tf.contrib.rnn.LSTMCell(self.config.hidden_size_char, state_is_tuple=True)
-            _output = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw,
-                                                      char_embeddings,
-                                                      sequence_length=word_lengths,
-                                                      dtype=tf.float32)
+                cell_fw = tf.contrib.rnn.LSTMCell(self.config.hidden_size_char_lstm, state_is_tuple=True)
+                cell_bw = tf.contrib.rnn.LSTMCell(self.config.hidden_size_char_lstm, state_is_tuple=True)
+                _, ((_, output_fw), (_, output_bw)) = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, char_embeddings, sequence_length=word_lengths, dtype=tf.float32)
 
-            # read and concat output
-            _, ((_, output_fw), (_, output_bw)) = _output
-            output = tf.concat([output_fw, output_bw], axis=-1)
+                # read and concat output
+                output = tf.concat([output_fw, output_bw], axis=-1)
 
-            # shape = (batch size, max sentence length, char hidden size)
-            output = tf.reshape(output, shape=[s[0], s[1], 2 * self.config.hidden_size_char])
+                # shape = (batch size, max sentence length, char hidden size)
+                output = tf.reshape(output, [bach_size, max_length_sentence, 2 * self.config.hidden_size_char_lstm], "output")
+
             word_embeddings = tf.concat([self.word_embeddings, output], axis=-1)
-
-        self.word_embeddings = tf.nn.dropout(word_embeddings, self.dropout)
+            self.word_embeddings = tf.nn.dropout(word_embeddings, self.dropout)
 
     def _add_logits_op(self):
 
         with tf.variable_scope("bi-lstm"):
-            cell_fw = tf.contrib.rnn.LSTMCell(self.config.hidden_size_lstm)
-            cell_bw = tf.contrib.rnn.LSTMCell(self.config.hidden_size_lstm)
+            cell_fw = tf.contrib.rnn.LSTMCell(self.config.hidden_size_char_lstm)
+            cell_bw = tf.contrib.rnn.LSTMCell(self.config.hidden_size_char_lstm)
             (output_fw, output_bw), _ = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw,
                                                                         self.word_embeddings,
                                                                         sequence_length=self.sequence_lengths,
@@ -102,12 +101,12 @@ class NerModel(BaseModel):
             output = tf.nn.dropout(output, self.dropout)
 
         with tf.variable_scope("proj"):
-            W = tf.get_variable("W", dtype=tf.float32, shape=[2 * self.config.hidden_size_lstm, self.config.n_tags])
+            W = tf.get_variable("W", dtype=tf.float32, shape=[2 * self.config.hidden_size_char_lstm, self.config.n_tags])
 
             b = tf.get_variable("b", shape=[self.config.n_tags], dtype=tf.float32, initializer=tf.zeros_initializer())
 
             s = tf.shape(output)
-            output = tf.reshape(output, [-1, 2 * self.config.hidden_size_lstm])
+            output = tf.reshape(output, [-1, 2 * self.config.hidden_size_char_lstm])
             pred = tf.matmul(output, W) + b
             self.logits = tf.reshape(pred, [-1, s[1], self.config.n_tags])
 
@@ -130,12 +129,11 @@ class NerModel(BaseModel):
         self.train_op = optimizer.minimize(self.loss)
 
     def _run_epoch(self, train: CoNLLDataset, dev: CoNLLDataset, epoch) -> int:
-        batch_size = self.config.batch_size
-        n_batches = (len(train) + batch_size - 1) // batch_size
+        n_batches = (len(train) + self.config.batch_size - 1) // self.config.batch_size
         prog = Progbar(target=n_batches)
 
         # iterate over dataset
-        for i, (words, labels) in enumerate(minibatches(train, batch_size)):
+        for i, (words, labels) in enumerate(minibatches(train, self.config.batch_size)):
             fd, _ = self.get_feed_dict(words, labels, self.config.lr, self.config.dropout)
 
             _, train_loss, summary = self.sess.run([self.train_op, self.loss, self.merged], feed_dict=fd)
@@ -223,12 +221,12 @@ class NerModel(BaseModel):
 
         return viterbi_sequences, sequence_lengths
 
-    def predict(self, words_raw):
-        words = [self.config.processing_word(w) for w in words_raw]
-        pred_ids, _ = self.predict_batch([zip(*words)])
+    def predict(self, sentence):
+        words = [self.config.processing_word(word) for word in sentence]
+        labels_pred, _ = self.predict_batch([zip(*words)])
 
         idx_to_tag = {idx: tag for tag, idx in self.config.vocab_tags.items()}
-        preds = [idx_to_tag[idx] for idx in list(pred_ids[0])]
+        preds = [idx_to_tag[idx] for idx in list(labels_pred[0])]
 
         return preds
 
